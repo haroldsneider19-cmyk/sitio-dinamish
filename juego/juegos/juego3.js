@@ -1,6 +1,6 @@
 /* ==========================================================
-   JUEGO 3 — PULPO-MAN (Laberinto submarino, tipo arcade)
-   ========================================================== */
+    JUEGO 3 — PULPO-MAN (Laberinto submarino, tipo arcade)
+    ========================================================== */
 
 const Game3 = (() => {
   let canvas, ctx, W, H, DPR;
@@ -11,13 +11,7 @@ const Game3 = (() => {
   let player, enemies, score, lives, startTime;
   let levelIndex, frightTimer = 0, speedBoostTimer = 0, message = null;
 
-  const DIRS = { 
-    up: { dx: 0, dy: -1 }, 
-    down: { dx: 0, dy: 1 }, 
-    left: { dx: -1, dy: 0 }, 
-    right: { dx: 1, dy: 0 }, 
-    none: { dx: 0, dy: 0 } 
-  };
+  const DIRS = { up: { dx: 0, dy: -1 }, down: { dx: 0, dy: 1 }, left: { dx: -1, dy: 0 }, right: { dx: 1, dy: 0 }, none: { dx: 0, dy: 0 } };
   const OPP = { up: 'down', down: 'up', left: 'right', right: 'left', none: 'none' };
 
   const LEVELS = [
@@ -35,7 +29,7 @@ const Game3 = (() => {
     };
   }
 
-  /* ---------------- Generación del laberinto ---------------- */
+  /* ---------------- generación del laberinto (DFS backtracker) ---------------- */
   function generateMaze(c, r, seed) {
     const grid = [];
     for (let i = 0; i < r; i++) {
@@ -43,37 +37,61 @@ const Game3 = (() => {
       for (let j = 0; j < c; j++) row.push({ n: true, s: true, e: true, w: true, visited: false });
       grid.push(row);
     }
+
     const rnd = mulberry32(seed);
     const stack = [[0, 0]];
     grid[0][0].visited = true;
+
     while (stack.length) {
       const [cr, cc] = stack[stack.length - 1];
       const neighbors = [];
+
       if (cr > 0 && !grid[cr - 1][cc].visited) neighbors.push(['n', cr - 1, cc]);
       if (cr < r - 1 && !grid[cr + 1][cc].visited) neighbors.push(['s', cr + 1, cc]);
       if (cc > 0 && !grid[cr][cc - 1].visited) neighbors.push(['w', cr, cc - 1]);
       if (cc < c - 1 && !grid[cr][cc + 1].visited) neighbors.push(['e', cr, cc + 1]);
-      if (neighbors.length === 0) { stack.pop(); continue; }
+
+      if (neighbors.length === 0) {
+        stack.pop();
+        continue;
+      }
+
       const [dir, nr, nc] = neighbors[Math.floor(rnd() * neighbors.length)];
       const opp = { n: 's', s: 'n', e: 'w', w: 'e' };
+
       grid[cr][cc][dir] = false;
       grid[nr][nc][opp[dir]] = false;
       grid[nr][nc].visited = true;
+
       stack.push([nr, nc]);
     }
+
     for (let i = 0; i < Math.floor(c * r * 0.06); i++) {
-      const rr = Math.floor(rnd() * r), cc = Math.floor(rnd() * c);
+      const rr = Math.floor(rnd() * r);
+      const cc = Math.floor(rnd() * c);
+
       const dirs = ['n', 's', 'e', 'w'];
       const d = dirs[Math.floor(rnd() * 4)];
-      const deltas = { n: [-1, 0], s: [1, 0], e: [0, 1], w: [0, -1] };
+
+      const deltas = {
+        n: [-1, 0],
+        s: [1, 0],
+        e: [0, 1],
+        w: [0, -1]
+      };
+
       const [dr, dc] = deltas[d];
-      const tr = rr + dr, tc = cc + dc;
+      const tr = rr + dr;
+      const tc = cc + dc;
+
       if (tr >= 0 && tr < r && tc >= 0 && tc < c) {
         const opp = { n: 's', s: 'n', e: 'w', w: 'e' };
+
         grid[rr][cc][d] = false;
         grid[tr][tc][opp[d]] = false;
       }
     }
+
     return grid;
   }
 
@@ -82,70 +100,53 @@ const Game3 = (() => {
     return !walls[r][c][dir];
   }
 
-  function cellCenter(r, c) { 
-    return { 
-      x: mazeOffX + c * cellSize + cellSize / 2, 
-      y: mazeOffY + r * cellSize + cellSize / 2 
-    }; 
+  function cellCenter(r, c) {
+    return {
+      x: mazeOffX + c * cellSize + cellSize / 2,
+      y: mazeOffY + r * cellSize + cellSize / 2
+    };
   }
 
-  /* ---------------- Ajuste Responsivo ---------------- */
-  function layoutCanvas() {
-    if (!canvas) return;
-    const stage = canvas.parentElement;
-
-    // Forzar el tamaño real del contenedor en el celular
-    W = stage.clientWidth || window.innerWidth;
-    H = stage.clientHeight || window.innerHeight;
-
-    DPR = window.devicePixelRatio || 1;
-    canvas.width = Math.floor(W * DPR);
-    canvas.height = Math.floor(H * DPR);
-    canvas.style.width = W + 'px';
-    canvas.style.height = H + 'px';
-    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-
-    // Tamaño de celda expandido para que ocupe toda la pantalla
-    const margin = 20;
-    cellSize = Math.floor(Math.min((W - margin) / cols, (H - margin - 60) / rows));
-    mazeOffX = Math.floor((W - cols * cellSize) / 2);
-    mazeOffY = Math.floor(40 + (H - 40 - rows * cellSize) / 2);
-
-    // Recalcular posiciones físicas si el canvas cambia de tamaño en ejecución
-    if (player) {
-      const pCenter = cellCenter(player.r, player.c);
-      player.x = pCenter.x;
-      player.y = pCenter.y;
-    }
-    if (enemies) {
-      enemies.forEach(en => {
-        const eCenter = cellCenter(en.r, en.c);
-        en.x = eCenter.x;
-        en.y = eCenter.y;
-      });
-    }
-  }
-
-  /* ---------------- Construcción del nivel ---------------- */
+  /* ---------------- construcción de nivel ---------------- */
   function buildLevel(idx) {
     levelIndex = idx;
     const cfg = LEVELS[idx];
 
-    cols = cfg.cols; 
-    rows = cfg.rows;
+    // En móviles forzamos una orientación vertical cómoda para grid
+    if (window.innerHeight > window.innerWidth) {
+      cols = cfg.cols;
+      rows = cfg.rows;
+    } else {
+      cols = cfg.cols;
+      rows = cfg.rows;
+    }
 
     walls = generateMaze(cols, rows, 42 + idx * 991);
+
     layoutCanvas();
 
     dots = [];
     powerPellets = [];
+
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
         if ((r === 0 && c === 0) || (r === rows - 1 && c === cols - 1)) continue;
-        dots.push({ r, c, collected: false, power: false });
+
+        dots.push({
+          r,
+          c,
+          collected: false,
+          power: false
+        });
       }
     }
-    const corners = [[0, cols - 1], [rows - 1, 0], [Math.floor(rows / 2), Math.floor(cols / 2)]];
+
+    const corners = [
+      [0, cols - 1],
+      [rows - 1, 0],
+      [Math.floor(rows / 2), Math.floor(cols / 2)]
+    ];
+
     corners.forEach(([r, c]) => {
       const d = dots.find(d => d.r === r && d.c === c);
       if (d) d.power = true;
@@ -155,380 +156,1266 @@ const Game3 = (() => {
     collected = 0;
 
     const start = cellCenter(0, 0);
-    player = { x: start.x, y: start.y, r: 0, c: 0, dir: 'none', nextDir: 'none' };
+
+    player = {
+      x: start.x,
+      y: start.y,
+      r: 0,
+      c: 0,
+      dir: 'none',
+      nextDir: 'none'
+    };
 
     enemies = [];
+
     const enemyDefs = [
-      { key: 'camara', icon: '📷', name: 'CÁMARA FANTASMA', behavior: 'chase' },
-      { key: 'medusa', icon: '🎐', name: 'MEDUSA LED', behavior: 'patrol' },
-      { key: 'robot', icon: '🤖', name: 'ROBOT DE PRODUCCIÓN', behavior: 'wander' },
+      {
+        key: 'camara',
+        icon: '📷',
+        name: 'CÁMARA FANTASMA',
+        behavior: 'chase'
+      },
+      {
+        key: 'medusa',
+        icon: '🎐',
+        name: 'MEDUSA LED',
+        behavior: 'patrol'
+      },
+      {
+        key: 'robot',
+        icon: '🤖',
+        name: 'ROBOT DE PRODUCCIÓN',
+        behavior: 'wander'
+      }
     ];
+
     for (let i = 0; i < cfg.enemies; i++) {
       const def = enemyDefs[i % enemyDefs.length];
-      const er = rows - 1, ec = cols - 1 - Math.min(i, cols - 1);
-      const p = cellCenter(er, ec);
-      enemies.push({ ...def, x: p.x, y: p.y, r: er, c: ec, dir: 'none', speed: cfg.speed, frightened: false });
+
+      const er = rows - 1;
+      const ec = cols - 1;
+
+      const p = cellCenter(
+        er,
+        ec - Math.min(i, cols - 1)
+      );
+
+      enemies.push({
+        ...def,
+        x: p.x,
+        y: p.y,
+        r: er,
+        c: ec - Math.min(i, cols - 1),
+        dir: 'none',
+        speed: cfg.speed,
+        frightened: false
+      });
     }
 
     const lvlEl = document.getElementById('g3-level');
-    if (lvlEl) lvlEl.textContent = idx + 1;
-    frightTimer = 0; 
+
+    if (lvlEl) {
+      lvlEl.textContent = idx + 1;
+    }
+
+    frightTimer = 0;
     speedBoostTimer = 0;
   }
 
-  /* ---------------- Controles ---------------- */
+  /* ---------------- tamaño responsive del canvas ---------------- */
+  function layoutCanvas() {
+    if (!canvas || !ctx || !cols || !rows) return;
+
+    const stage = canvas.parentElement;
+
+    const isMobile = window.matchMedia(
+      '(max-width: 700px)'
+    ).matches;
+
+    const viewport = window.visualViewport;
+
+    // Medimos el espacio REAL disponible.
+    // visualViewport ayuda cuando la barra del navegador cambia
+    // de tamaño en dispositivos móviles.
+
+    W = Math.max(
+      1,
+      Math.floor(
+        stage?.clientWidth ||
+        viewport?.width ||
+        window.innerWidth
+      )
+    );
+
+    H = Math.max(
+      1,
+      Math.floor(
+        stage?.clientHeight ||
+        viewport?.height ||
+        window.innerHeight
+      )
+    );
+
+    // Limitamos DPR a 2 para evitar un canvas demasiado pesado
+    // en celulares con pantallas de alta densidad.
+
+    DPR = Math.min(
+      window.devicePixelRatio || 1,
+      2
+    );
+
+    // En celular dejamos muy poco margen porque los controles
+    // táctiles están superpuestos y no necesitan espacio propio.
+
+    const marginW = isMobile ? 8 : 20;
+    const marginH = isMobile ? 8 : 30;
+
+    const usableW = Math.max(
+      1,
+      W - marginW
+    );
+
+    const usableH = Math.max(
+      1,
+      H - marginH
+    );
+
+    // Calculamos el tamaño máximo posible de cada celda.
+    // Esto hace que el laberinto crezca proporcionalmente
+    // según el tamaño disponible.
+
+    cellSize = Math.max(
+      1,
+      Math.floor(
+        Math.min(
+          usableW / cols,
+          usableH / rows
+        )
+      )
+    );
+
+    // Canvas de alta resolución para que se vea nítido.
+
+    canvas.width = Math.floor(
+      W * DPR
+    );
+
+    canvas.height = Math.floor(
+      H * DPR
+    );
+
+    canvas.style.width = W + 'px';
+    canvas.style.height = H + 'px';
+
+    ctx.setTransform(
+      DPR,
+      0,
+      0,
+      DPR,
+      0,
+      0
+    );
+
+    // Centramos el laberinto en la pantalla.
+
+    mazeOffX = Math.floor(
+      (W - cols * cellSize) / 2
+    );
+
+    mazeOffY = Math.floor(
+      (H - rows * cellSize) / 2
+    );
+  }
+
+  /* ---------------- controles ---------------- */
+
   const keyToDir = {
-    ArrowUp: 'up', w: 'up', W: 'up', 
-    ArrowDown: 'down', s: 'down', S: 'down',
-    ArrowLeft: 'left', a: 'left', A: 'left', 
-    ArrowRight: 'right', d: 'right', D: 'right'
+    ArrowUp: 'up',
+    w: 'up',
+    W: 'up',
+
+    ArrowDown: 'down',
+    s: 'down',
+    S: 'down',
+
+    ArrowLeft: 'left',
+    a: 'left',
+    A: 'left',
+
+    ArrowRight: 'right',
+    d: 'right',
+    D: 'right'
   };
 
   function onKeyDown(e) {
     const dir = keyToDir[e.key];
-    if (dir) player.nextDir = dir;
+
+    if (dir) {
+      player.nextDir = dir;
+    }
   }
 
   let touchHandlers = [];
+
   function bindControls() {
-    window.addEventListener('keydown', onKeyDown);
-    const wrap = document.getElementById('touch-g3');
+    window.addEventListener(
+      'keydown',
+      onKeyDown
+    );
+
+    const wrap = document.getElementById(
+      'touch-g3'
+    );
+
     if (!wrap) return;
-    wrap.querySelectorAll('[data-k]').forEach(btn => {
+
+    wrap.querySelectorAll(
+      '[data-k]'
+    ).forEach(btn => {
       const k = btn.dataset.k;
-      const press = (ev) => { ev.preventDefault(); player.nextDir = k; };
-      btn.addEventListener('touchstart', press, { passive: false });
-      btn.addEventListener('mousedown', press);
-      touchHandlers.push({ btn, press });
+
+      const press = (ev) => {
+        ev.preventDefault();
+
+        player.nextDir = k;
+      };
+
+      btn.addEventListener(
+        'touchstart',
+        press,
+        {
+          passive: false
+        }
+      );
+
+      btn.addEventListener(
+        'mousedown',
+        press
+      );
+
+      touchHandlers.push({
+        btn,
+        press
+      });
     });
   }
 
   function unbindControls() {
-    window.removeEventListener('keydown', onKeyDown);
-    touchHandlers.forEach(({ btn, press }) => {
-      btn.removeEventListener('touchstart', press);
-      btn.removeEventListener('mousedown', press);
-    });
+    window.removeEventListener(
+      'keydown',
+      onKeyDown
+    );
+
+    touchHandlers.forEach(
+      ({ btn, press }) => {
+        btn.removeEventListener(
+          'touchstart',
+          press
+        );
+
+        btn.removeEventListener(
+          'mousedown',
+          press
+        );
+      }
+    );
+
     touchHandlers = [];
   }
 
-  /* ---------------- Lógica del Juego ---------------- */
+  /* ---------------- movimiento ---------------- */
+
   function tryMove(entity, baseSpeed) {
     const speed = baseSpeed;
-    const center = cellCenter(entity.r, entity.c);
-    const alignedX = Math.abs(entity.x - center.x) < Math.max(1, speed * 0.8);
-    const alignedY = Math.abs(entity.y - center.y) < Math.max(1, speed * 0.8);
+
+    const center = cellCenter(
+      entity.r,
+      entity.c
+    );
+
+    const alignedX =
+      Math.abs(
+        entity.x - center.x
+      ) < speed * 0.6;
+
+    const alignedY =
+      Math.abs(
+        entity.y - center.y
+      ) < speed * 0.6;
 
     if (alignedX && alignedY) {
-      entity.x = center.x; 
+      entity.x = center.x;
       entity.y = center.y;
-      if (entity.nextDir && entity.nextDir !== 'none') {
-        if (wallOpen(entity.r, entity.c, entity.nextDir)) {
+
+      if (
+        entity.nextDir &&
+        entity.nextDir !== 'none'
+      ) {
+        if (
+          wallOpen(
+            entity.r,
+            entity.c,
+            entity.nextDir
+          )
+        ) {
           entity.dir = entity.nextDir;
         }
       }
-      if (entity.dir !== 'none' && !wallOpen(entity.r, entity.c, entity.dir)) {
+
+      if (
+        entity.dir !== 'none' &&
+        !wallOpen(
+          entity.r,
+          entity.c,
+          entity.dir
+        )
+      ) {
         entity.dir = 'none';
       }
+
       const d = DIRS[entity.dir];
-      const targetR = entity.r + d.dy, targetC = entity.c + d.dx;
-      entity._movingTo = (entity.dir !== 'none') ? [targetR, targetC] : null;
+
+      const targetR =
+        entity.r + d.dy;
+
+      const targetC =
+        entity.c + d.dx;
+
+      entity._movingTo =
+        entity.dir !== 'none'
+          ? [targetR, targetC]
+          : null;
     }
 
     if (entity.dir !== 'none') {
       const d = DIRS[entity.dir];
+
       entity.x += d.dx * speed;
       entity.y += d.dy * speed;
+
       if (entity._movingTo) {
-        const tgt = cellCenter(entity._movingTo[0], entity._movingTo[1]);
-        const passed = (d.dx > 0 && entity.x >= tgt.x) || (d.dx < 0 && entity.x <= tgt.x) ||
-                       (d.dy > 0 && entity.y >= tgt.y) || (d.dy < 0 && entity.y <= tgt.y);
+        const tgt = cellCenter(
+          entity._movingTo[0],
+          entity._movingTo[1]
+        );
+
+        const passed =
+          (d.dx > 0 &&
+            entity.x >= tgt.x) ||
+
+          (d.dx < 0 &&
+            entity.x <= tgt.x) ||
+
+          (d.dy > 0 &&
+            entity.y >= tgt.y) ||
+
+          (d.dy < 0 &&
+            entity.y <= tgt.y);
+
         if (passed) {
-          entity.r = entity._movingTo[0]; 
-          entity.c = entity._movingTo[1];
-          entity.x = tgt.x; 
+          entity.r =
+            entity._movingTo[0];
+
+          entity.c =
+            entity._movingTo[1];
+
+          entity.x = tgt.x;
           entity.y = tgt.y;
         }
       }
     }
   }
 
+  /* ---------------- inteligencia enemigos ---------------- */
+
   function chooseEnemyDir(en) {
-    const options = ['up', 'down', 'left', 'right'].filter(d => wallOpen(en.r, en.c, d) && d !== OPP[en.dir]);
-    const allOptions = options.length ? options : ['up', 'down', 'left', 'right'].filter(d => wallOpen(en.r, en.c, d));
-    if (!allOptions.length) return 'none';
-    
-    if (en.behavior === 'wander') {
-      return allOptions[Math.floor(Math.random() * allOptions.length)];
+    const options = [
+      'up',
+      'down',
+      'left',
+      'right'
+    ].filter(
+      d =>
+        wallOpen(
+          en.r,
+          en.c,
+          d
+        ) &&
+        d !== OPP[en.dir]
+    );
+
+    const allOptions =
+      options.length
+        ? options
+        : [
+            'up',
+            'down',
+            'left',
+            'right'
+          ].filter(
+            d =>
+              wallOpen(
+                en.r,
+                en.c,
+                d
+              )
+          );
+
+    if (!allOptions.length) {
+      return 'none';
     }
-    
-    let best = allOptions[0], bestScore = en.frightened ? -Infinity : Infinity;
+
+    if (en.behavior === 'wander') {
+      return allOptions[
+        Math.floor(
+          Math.random() *
+          allOptions.length
+        )
+      ];
+    }
+
+    let best =
+      allOptions[0];
+
+    let bestScore =
+      en.frightened
+        ? -Infinity
+        : Infinity;
+
     for (const d of allOptions) {
       const dd = DIRS[d];
-      const nr = en.r + dd.dy, nc = en.c + dd.dx;
-      const dist = Math.hypot(nr - player.r, nc - player.c);
+
+      const nr =
+        en.r + dd.dy;
+
+      const nc =
+        en.c + dd.dx;
+
+      const dist = Math.hypot(
+        nr - player.r,
+        nc - player.c
+      );
+
       if (en.frightened) {
-        if (dist > bestScore) { bestScore = dist; best = d; }
-      } else if (en.behavior === 'chase') {
-        if (dist < bestScore) { bestScore = dist; best = d; }
-      } else {
-        if (Math.random() < 0.5) return allOptions[Math.floor(Math.random() * allOptions.length)];
-        if (dist < bestScore) { bestScore = dist; best = d; }
+        if (dist > bestScore) {
+          bestScore = dist;
+          best = d;
+        }
       }
-    }
-    return best;
-  }
 
-  function handlePlayerDeath() {
-    lives--;
-    if (window.App && App.playSfx) App.playSfx('hurt');
-    if (lives <= 0) {
-      running = false;
-      cancelAnimationFrame(raf);
-      if (window.App && App.onGameOver) App.onGameOver(3, { score });
-    } else {
-      const start = cellCenter(0, 0);
-      player.x = start.x; player.y = start.y;
-      player.r = 0; player.c = 0;
-      player.dir = 'none'; player.nextDir = 'none';
-    }
-  }
-
-  function update() {
-    tryMove(player, (speedBoostTimer > 0 ? 1.6 : 1) * cellSize * 0.055);
-
-    const dot = dots.find(d => !d.collected && d.r === player.r && d.c === player.c);
-    if (dot) {
-      dot.collected = true; 
-      collected++;
-      if (dot.power) {
-        score += 50; 
-        if (window.App && App.playSfx) App.playSfx('power');
-        frightTimer = 360; 
-        message = { text: '¡MODO DIRECTOR!', t: Date.now() };
-      } else {
-        score += 10; 
-        if (window.App && App.playSfx) App.playSfx('collect');
+      else if (
+        en.behavior === 'chase'
+      ) {
+        if (dist < bestScore) {
+          bestScore = dist;
+          best = d;
+        }
       }
-      updateScoreHUD();
-    }
 
-    if (frightTimer > 0) frightTimer--;
-    if (speedBoostTimer > 0) speedBoostTimer--;
+      else {
+        if (Math.random() < 0.5) {
+          return allOptions[
+            Math.floor(
+              Math.random() *
+              allOptions.length
+            )
+          ];
+        }
 
-    for (const en of enemies) {
-      en.frightened = frightTimer > 0;
-      const center = cellCenter(en.r, en.c);
-      const aligned = Math.abs(en.x - center.x) < 1 && Math.abs(en.y - center.y) < 1;
-      
-      if (aligned || en.dir === 'none') {
-        en.nextDir = chooseEnemyDir(en);
-      }
-      
-      tryMove(en, en.speed * (en.frightened ? 0.6 : 1) * (cellSize * 0.03));
-      
-      // Detección de colisiones
-      if (Math.hypot(en.x - player.x, en.y - player.y) < cellSize * 0.45) {
-        if (en.frightened) {
-          const home = cellCenter(rows - 1, cols - 1);
-          en.r = rows - 1; en.c = cols - 1; 
-          en.x = home.x; en.y = home.y; 
-          en.dir = 'none';
-          score += 200;
-          updateScoreHUD();
-          if (window.App && App.playSfx) App.playSfx('power');
-        } else {
-          handlePlayerDeath();
-          break;
+        if (dist < bestScore) {
+          bestScore = dist;
+          best = d;
         }
       }
     }
 
-    if (collected >= totalToCollect) {
+    return best;
+  }
+
+  /* ---------------- actualización del juego ---------------- */
+
+  function update() {
+    tryMove(
+      player,
+      (
+        speedBoostTimer > 0
+          ? 1.6
+          : 1
+      ) *
+      cellSize *
+      0.055
+    );
+
+    const dot = dots.find(
+      d =>
+        !d.collected &&
+        d.r === player.r &&
+        d.c === player.c
+    );
+
+    if (dot) {
+      dot.collected = true;
+      collected++;
+
+      if (dot.power) {
+        score += 50;
+
+        if (
+          window.App &&
+          App.playSfx
+        ) {
+          App.playSfx('power');
+        }
+
+        frightTimer = 360;
+
+        message = {
+          text: '¡MODO DIRECTOR!',
+          t: Date.now()
+        };
+      }
+
+      else {
+        score += 10;
+
+        if (
+          window.App &&
+          App.playSfx
+        ) {
+          App.playSfx('collect');
+        }
+      }
+
+      updateScoreHUD();
+    }
+
+    if (frightTimer > 0) {
+      frightTimer--;
+    }
+
+    if (speedBoostTimer > 0) {
+      speedBoostTimer--;
+    }
+
+    for (const en of enemies) {
+      en.frightened =
+        frightTimer > 0;
+
+      const center = cellCenter(
+        en.r,
+        en.c
+      );
+
+      const aligned =
+        Math.abs(
+          en.x - center.x
+        ) < 1 &&
+        Math.abs(
+          en.y - center.y
+        ) < 1;
+
+      if (
+        aligned ||
+        en.dir === 'none'
+      ) {
+        en.nextDir =
+          chooseEnemyDir(en);
+      }
+
+      tryMove(
+        en,
+        en.speed *
+        (
+          en.frightened
+            ? 0.6
+            : 1
+        )
+      );
+
+      if (
+        Math.hypot(
+          en.x - player.x,
+          en.y - player.y
+        ) <
+        cellSize * 0.5
+      ) {
+        const home =
+          cellCenter(
+            rows - 1,
+            cols - 1
+          );
+
+        en.r = rows - 1;
+        en.c = cols - 1;
+
+        en.x = home.x;
+        en.y = home.y;
+
+        en.dir = 'none';
+
+        score +=
+          en.frightened
+            ? 300
+            : 100;
+
+        updateScoreHUD();
+
+        if (
+          window.App &&
+          App.playSfx
+        ) {
+          App.playSfx('power');
+        }
+      }
+    }
+
+    if (
+      collected >=
+      totalToCollect
+    ) {
       completeLevel();
     }
   }
 
+  /* ---------------- completar nivel ---------------- */
+
   function completeLevel() {
-    if (levelIndex < LEVELS.length - 1) {
+    if (
+      levelIndex <
+      LEVELS.length - 1
+    ) {
       score += 500;
+
       updateScoreHUD();
-      buildLevel(levelIndex + 1);
-    } else {
+
+      buildLevel(
+        levelIndex + 1
+      );
+    }
+
+    else {
       running = false;
-      cancelAnimationFrame(raf);
-      const time = Math.round((Date.now() - startTime) / 1000);
-      if (window.App && App.onGameWin) App.onGameWin(3, { score, time, items: collected });
+
+      cancelAnimationFrame(
+        raf
+      );
+
+      const time =
+        Math.round(
+          (
+            Date.now() -
+            startTime
+          ) / 1000
+        );
+
+      if (
+        window.App &&
+        App.onGameWin
+      ) {
+        App.onGameWin(
+          3,
+          {
+            score,
+            time,
+            items: collected
+          }
+        );
+      }
     }
   }
 
+  /* ---------------- HUD ---------------- */
+
   function updateScoreHUD() {
-    const scEl = document.getElementById('g3-score');
-    if (scEl) scEl.textContent = String(score).padStart(6, '0');
+    const scEl =
+      document.getElementById(
+        'g3-score'
+      );
+
+    if (scEl) {
+      scEl.textContent =
+        String(score).padStart(
+          6,
+          '0'
+        );
+    }
   }
 
-  /* ---------------- Renderizado ---------------- */
+  /* ---------------- dibujo del laberinto ---------------- */
+
   function drawMaze() {
-    ctx.strokeStyle = '#EF7A22';
-    ctx.lineWidth = Math.max(2, cellSize * 0.08);
+    ctx.strokeStyle =
+      '#EF7A22';
+
+    ctx.lineWidth =
+      Math.max(
+        2,
+        cellSize * 0.08
+      );
+
     ctx.lineCap = 'round';
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        const x0 = mazeOffX + c * cellSize, y0 = mazeOffY + r * cellSize;
-        const cell = walls[r][c];
+
+    for (
+      let r = 0;
+      r < rows;
+      r++
+    ) {
+      for (
+        let c = 0;
+        c < cols;
+        c++
+      ) {
+        const x0 =
+          mazeOffX +
+          c * cellSize;
+
+        const y0 =
+          mazeOffY +
+          r * cellSize;
+
+        const cell =
+          walls[r][c];
+
         ctx.beginPath();
-        if (cell.n) { ctx.moveTo(x0, y0); ctx.lineTo(x0 + cellSize, y0); }
-        if (cell.w) { ctx.moveTo(x0, y0); ctx.lineTo(x0, y0 + cellSize); }
-        if (r === rows - 1 && cell.s) { ctx.moveTo(x0, y0 + cellSize); ctx.lineTo(x0 + cellSize, y0 + cellSize); }
-        if (c === cols - 1 && cell.e) { ctx.moveTo(x0 + cellSize, y0); ctx.lineTo(x0 + cellSize, y0 + cellSize); }
+
+        if (cell.n) {
+          ctx.moveTo(
+            x0,
+            y0
+          );
+
+          ctx.lineTo(
+            x0 + cellSize,
+            y0
+          );
+        }
+
+        if (cell.w) {
+          ctx.moveTo(
+            x0,
+            y0
+          );
+
+          ctx.lineTo(
+            x0,
+            y0 + cellSize
+          );
+        }
+
+        if (
+          r === rows - 1 &&
+          cell.s
+        ) {
+          ctx.moveTo(
+            x0,
+            y0 + cellSize
+          );
+
+          ctx.lineTo(
+            x0 + cellSize,
+            y0 + cellSize
+          );
+        }
+
+        if (
+          c === cols - 1 &&
+          cell.e
+        ) {
+          ctx.moveTo(
+            x0 + cellSize,
+            y0
+          );
+
+          ctx.lineTo(
+            x0 + cellSize,
+            y0 + cellSize
+          );
+        }
+
         ctx.stroke();
       }
     }
   }
 
-  function drawDetailedOctopus(size, now) {
+  /* ---------------- dibujo del pulpo ---------------- */
+
+  function drawDetailedOctopus(
+    size,
+    now
+  ) {
     ctx.save();
-    
-    ctx.fillStyle = '#FF7A00';
+
+    ctx.fillStyle =
+      '#FF7A00';
+
     ctx.beginPath();
-    ctx.arc(0, -size * 0.08, size * 0.42, Math.PI, 0, false);
-    ctx.lineTo(size * 0.42, size * 0.15);
-    ctx.quadraticCurveTo(0, size * 0.25, -size * 0.42, size * 0.15);
+
+    ctx.arc(
+      0,
+      -size * 0.08,
+      size * 0.42,
+      Math.PI,
+      0,
+      false
+    );
+
+    ctx.lineTo(
+      size * 0.42,
+      size * 0.15
+    );
+
+    ctx.quadraticCurveTo(
+      0,
+      size * 0.25,
+      -size * 0.42,
+      size * 0.15
+    );
+
     ctx.closePath();
     ctx.fill();
 
-    ctx.strokeStyle = '#FF6000';
-    ctx.lineWidth = Math.max(3, size * 0.13);
-    ctx.lineCap = 'round';
+    ctx.strokeStyle =
+      '#FF6000';
 
-    const wave = Math.sin(now / 70) * (size * 0.18);
-    const tentacleOffsets = [-0.25, -0.1, 0.1, 0.25];
-    
-    tentacleOffsets.forEach((offset, idx) => {
-      ctx.beginPath();
-      let startX = offset * size;
-      ctx.moveTo(startX, size * 0.15);
-      let waveDir = (idx % 2 === 0) ? wave : -wave;
-      ctx.quadraticCurveTo(startX + waveDir, size * 0.45, startX + (waveDir * 0.5), size * 0.65);
-      ctx.stroke();
-    });
+    ctx.lineWidth =
+      Math.max(
+        3,
+        size * 0.13
+      );
 
-    ctx.fillStyle = '#FFFFFF';
+    ctx.lineCap =
+      'round';
+
+    const wave =
+      Math.sin(
+        now / 70
+      ) *
+      (size * 0.18);
+
+    const tentacleOffsets = [
+      -0.25,
+      -0.1,
+      0.1,
+      0.25
+    ];
+
+    tentacleOffsets.forEach(
+      (
+        offset,
+        idx
+      ) => {
+        ctx.beginPath();
+
+        let startX =
+          offset * size;
+
+        ctx.moveTo(
+          startX,
+          size * 0.15
+        );
+
+        let waveDir =
+          (
+            idx % 2 === 0
+          )
+            ? wave
+            : -wave;
+
+        ctx.quadraticCurveTo(
+          startX + waveDir,
+          size * 0.45,
+          startX +
+            (waveDir * 0.5),
+          size * 0.65
+        );
+
+        ctx.stroke();
+      }
+    );
+
+    ctx.fillStyle =
+      '#FFFFFF';
+
     ctx.beginPath();
-    ctx.arc(-size * 0.14, -size * 0.1, size * 0.13, 0, Math.PI * 2);
-    ctx.arc(size * 0.14, -size * 0.1, size * 0.13, 0, Math.PI * 2);
+
+    ctx.arc(
+      -size * 0.14,
+      -size * 0.1,
+      size * 0.13,
+      0,
+      Math.PI * 2
+    );
+
+    ctx.arc(
+      size * 0.14,
+      -size * 0.1,
+      size * 0.13,
+      0,
+      Math.PI * 2
+    );
+
     ctx.fill();
 
-    ctx.fillStyle = '#0B171E';
+    ctx.fillStyle =
+      '#0B171E';
+
     ctx.beginPath();
-    ctx.arc(-size * 0.12, -size * 0.1, size * 0.05, 0, Math.PI * 2);
-    ctx.arc(size * 0.16, -size * 0.1, size * 0.05, 0, Math.PI * 2);
+
+    ctx.arc(
+      -size * 0.12,
+      -size * 0.1,
+      size * 0.05,
+      0,
+      Math.PI * 2
+    );
+
+    ctx.arc(
+      size * 0.16,
+      -size * 0.1,
+      size * 0.05,
+      0,
+      Math.PI * 2
+    );
+
     ctx.fill();
 
     ctx.restore();
   }
 
+  /* ---------------- dibujo general ---------------- */
+
   function draw() {
-    ctx.clearRect(0, 0, W, H);
-    const grad = ctx.createLinearGradient(0, 0, 0, H);
-    grad.addColorStop(0, '#1E3C4D'); 
-    grad.addColorStop(1, '#0B171E');
-    ctx.fillStyle = grad; 
-    ctx.fillRect(0, 0, W, H);
+    ctx.clearRect(
+      0,
+      0,
+      W,
+      H
+    );
+
+    const grad =
+      ctx.createLinearGradient(
+        0,
+        0,
+        0,
+        H
+      );
+
+    grad.addColorStop(
+      0,
+      '#1E3C4D'
+    );
+
+    grad.addColorStop(
+      1,
+      '#0B171E'
+    );
+
+    ctx.fillStyle = grad;
+
+    ctx.fillRect(
+      0,
+      0,
+      W,
+      H
+    );
 
     drawMaze();
 
+    /* ---------- puntos ---------- */
+
     for (const d of dots) {
       if (d.collected) continue;
-      const p = cellCenter(d.r, d.c);
+
+      const p =
+        cellCenter(
+          d.r,
+          d.c
+        );
+
       if (d.power) {
-        ctx.font = Math.floor(cellSize * 0.55) + 'px sans-serif';
-        ctx.textAlign = 'center'; 
-        ctx.textBaseline = 'middle';
-        ctx.fillText(['⚡', '🎬', '💡', '🎥'][(d.r + d.c) % 4], p.x, p.y);
-      } else {
-        ctx.fillStyle = '#EF7A22';
-        ctx.beginPath(); 
-        ctx.arc(p.x, p.y, Math.max(2, cellSize * 0.07), 0, Math.PI * 2); 
+        ctx.font =
+          Math.floor(
+            cellSize * 0.55
+          ) +
+          'px sans-serif';
+
+        ctx.textAlign =
+          'center';
+
+        ctx.textBaseline =
+          'middle';
+
+        ctx.fillText(
+          [
+            '⚡',
+            '🎬',
+            '💡',
+            '🎥'
+          ][
+            (d.r + d.c) % 4
+          ],
+          p.x,
+          p.y
+        );
+      }
+
+      else {
+        ctx.fillStyle =
+          '#EF7A22';
+
+        ctx.beginPath();
+
+        ctx.arc(
+          p.x,
+          p.y,
+          Math.max(
+            2,
+            cellSize * 0.07
+          ),
+          0,
+          Math.PI * 2
+        );
+
         ctx.fill();
       }
     }
 
-    ctx.font = Math.floor(cellSize * 0.7) + 'px sans-serif';
-    ctx.textAlign = 'center'; 
-    ctx.textBaseline = 'middle';
-    const now = Date.now();
+    /* ---------- enemigos ---------- */
+
+    ctx.font =
+      Math.floor(
+        cellSize * 0.7
+      ) +
+      'px sans-serif';
+
+    ctx.textAlign =
+      'center';
+
+    ctx.textBaseline =
+      'middle';
+
+    const now =
+      Date.now();
 
     for (const en of enemies) {
       ctx.save();
-      ctx.translate(en.x, en.y);
-      if (en.dir !== 'none') {
-        const bounce = Math.sin(now / 120 + en.x) * (cellSize * 0.08);
-        ctx.translate(0, bounce);
-        if (en.dir === 'left') { ctx.scale(-1, 1); }
+
+      ctx.translate(
+        en.x,
+        en.y
+      );
+
+      if (
+        en.dir !== 'none'
+      ) {
+        const bounce =
+          Math.sin(
+            now / 120 +
+            en.x
+          ) *
+          (
+            cellSize *
+            0.08
+          );
+
+        ctx.translate(
+          0,
+          bounce
+        );
+
+        if (
+          en.dir === 'left'
+        ) {
+          ctx.scale(
+            -1,
+            1
+          );
+        }
       }
-      ctx.globalAlpha = en.frightened ? 0.6 : 1;
-      ctx.fillText(en.frightened ? '😨' : en.icon, 0, 0);
+
+      ctx.globalAlpha =
+        en.frightened
+          ? 0.6
+          : 1;
+
+      ctx.fillText(
+        en.frightened
+          ? '😨'
+          : en.icon,
+        0,
+        0
+      );
+
       ctx.globalAlpha = 1;
+
       ctx.restore();
     }
 
-    const size = cellSize * 0.9;
+    /* ---------- jugador ---------- */
+
+    const size =
+      cellSize * 0.9;
+
     ctx.save();
-    ctx.translate(player.x, player.y);
 
-    if (player.dir === 'left') { ctx.scale(-1, 1); }
-    else if (player.dir === 'up') { ctx.rotate(-Math.PI / 2); }
-    else if (player.dir === 'down') { ctx.rotate(Math.PI / 2); }
+    ctx.translate(
+      player.x,
+      player.y
+    );
 
-    drawDetailedOctopus(size, now);
+    if (
+      player.dir === 'left'
+    ) {
+      ctx.scale(
+        -1,
+        1
+      );
+    }
+
+    else if (
+      player.dir === 'up'
+    ) {
+      ctx.rotate(
+        -Math.PI / 2
+      );
+    }
+
+    else if (
+      player.dir === 'down'
+    ) {
+      ctx.rotate(
+        Math.PI / 2
+      );
+    }
+
+    drawDetailedOctopus(
+      size,
+      now
+    );
+
     ctx.restore();
 
-    if (message && Date.now() - message.t < 1200) {
-      ctx.fillStyle = '#EF7A22';
-      ctx.font = 'bold 22px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText(message.text, W / 2, 30);
+    /* ---------- mensaje ---------- */
+
+    if (
+      message &&
+      Date.now() -
+        message.t <
+        1200
+    ) {
+      ctx.fillStyle =
+        '#EF7A22';
+
+      ctx.font =
+        'bold 22px sans-serif';
+
+      ctx.textAlign =
+        'center';
+
+      ctx.fillText(
+        message.text,
+        W / 2,
+        30
+      );
     }
 
-    ctx.font = '20px sans-serif';
-    ctx.textAlign = 'left';
-    for (let i = 0; i < lives; i++) {
-      ctx.fillText('🐙', 16 + i * 28, H - 12);
+    /* ---------- vidas ---------- */
+
+    ctx.font =
+      '20px sans-serif';
+
+    ctx.textAlign =
+      'left';
+
+    for (
+      let i = 0;
+      i < lives;
+      i++
+    ) {
+      ctx.fillText(
+        '🐙',
+        16 + i * 28,
+        H - 12
+      );
     }
   }
+
+  /* ---------------- bucle del juego ---------------- */
 
   function loop() {
     if (!running) return;
+
     update();
-    if (running) { 
-      draw(); 
-      raf = requestAnimationFrame(loop); 
+
+    if (running) {
+      draw();
+
+      raf =
+        requestAnimationFrame(
+          loop
+        );
     }
   }
 
+  /* ---------------- iniciar ---------------- */
+
   function start() {
-    canvas = document.getElementById('canvas-g3');
+    canvas =
+      document.getElementById(
+        'canvas-g3'
+      );
+
     if (!canvas) return;
-    ctx = canvas.getContext('2d');
-    score = 0; 
-    lives = 3; 
-    startTime = Date.now();
+
+    ctx =
+      canvas.getContext(
+        '2d'
+      );
+
+    score = 0;
+    lives = 3;
+    startTime =
+      Date.now();
+
     updateScoreHUD();
+
     buildLevel(0);
+
     bindControls();
-    window.addEventListener('resize', layoutCanvas);
+
+    window.addEventListener(
+      'resize',
+      layoutCanvas
+    );
+
     running = true;
-    cancelAnimationFrame(raf);
+
+    cancelAnimationFrame(
+      raf
+    );
+
     loop();
   }
 
+  /* ---------------- detener ---------------- */
+
   function stop() {
     running = false;
-    cancelAnimationFrame(raf);
+
+    cancelAnimationFrame(
+      raf
+    );
+
     unbindControls();
-    window.removeEventListener('resize', layoutCanvas);
+
+    window.removeEventListener(
+      'resize',
+      layoutCanvas
+    );
   }
 
-  return { start, stop };
+  return {
+    start,
+    stop
+  };
 })();
